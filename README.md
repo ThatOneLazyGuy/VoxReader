@@ -21,9 +21,9 @@ Not yet supported:
 - Render objects.
 
 When creating a scene and reading a voxel file, a ReaderSettings instance can be given in order to process the parsed data in some ways:
-- **voxel_scale:** The scale that the voxels should be at, this is used to scale the transform positions to match with you're program's scale.
-- **calculate_local_rotation:** When set calculates the local rotation quaternion from the transform's matrix, otherwise the local_rotation parameter of the transform will be a unit quaternion.
-- **add_voxel_offsets:** When set adds half a voxel_scale of spacing to transforms of instances, this corrects for incorrect spacing caused by odd numbered voxel model scales.
+- **voxel_scale:** The scale that the voxels should be at, this is used to scale the transform positions to match with your program's scale.
+- **calculate_local_rotation:** When set, calculates the local rotation quaternion from the transform's matrix, otherwise the local_rotation parameter of the transform will be a unit quaternion.
+- **add_voxel_offsets:** When set, adds half a voxel_scale of spacing to transforms of instances, this corrects for incorrect spacing caused by odd-numbered voxel model scales.
 - **SetCoordinateSystem():** This function is used to set the rest of the internally used member variables, and when set to any other values than right-handed z-up (MagicaVoxel's coordinate system) will automatically transform all instance and group transforms to the new coordinate system and will also correctly adjust the voxel model data to the new coordinate system.
 
 # Usage
