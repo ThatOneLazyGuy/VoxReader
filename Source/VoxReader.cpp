@@ -179,6 +179,26 @@ namespace VoxReader
 			return { first, second, third };
 		}
 
+		// Vector multiplication with matrix, ignores the translation of the matrix.
+		void operator*=(Vector& first, const Matrix& second)
+		{
+			Vector old_vector = first;
+			first.x = 0.0f;
+			first.x += old_vector.x * second.cells[0][0];
+			first.x += old_vector.y * second.cells[1][0];
+			first.x += old_vector.z * second.cells[2][0];
+
+			first.y = 0.0f;
+			first.y += old_vector.x * second.cells[0][1];
+			first.y += old_vector.y * second.cells[1][1];
+			first.y += old_vector.z * second.cells[2][1];
+
+			first.z = 0.0f;
+			first.z += old_vector.x * second.cells[0][2];
+			first.z += old_vector.y * second.cells[1][2];
+			first.z += old_vector.z * second.cells[2][2];
+		}
+
 		Matrix operator*(const Matrix& first, const Matrix& second)
 		{
 			Matrix matrix{};
@@ -313,9 +333,9 @@ namespace VoxReader
 
 	Transform::Transform(const Vector& position, const uint8 rotation, const ReaderSettings& reader_settings)
 	{
-		matrix.cells[3][0] = position.x * reader_settings.custom_scale.x;
-		matrix.cells[3][1] = position.y * reader_settings.custom_scale.y;
-		matrix.cells[3][2] = position.z * reader_settings.custom_scale.z;
+		matrix.cells[3][0] = position.x * reader_settings.voxel_scale.x;
+		matrix.cells[3][1] = position.y * reader_settings.voxel_scale.y;
+		matrix.cells[3][2] = position.z * reader_settings.voxel_scale.z;
 
 		if (rotation != 0)
 		{
@@ -556,6 +576,42 @@ namespace VoxReader
 		{
 			// If no palette was included in the file, copy the default palette.
 			std::memcpy(palette, default_palette, sizeof(default_palette));
+		}
+
+		if (reader_settings.add_voxel_offsets)
+		{
+			for (const Instance& instance : instances)
+			{
+				const Model& model = models[instance.model_index];
+				Transform& transform = transforms[instance.transform_index];
+
+				// If the scale of the model is an odd number on any axis, add half a voxel as an offset to align the instances correctly.
+				Vector offset
+				{
+					model.size.x & 0b1 ? (reader_settings.voxel_scale.x / 2.0f) : 0.0f,
+					model.size.y & 0b1 ? (reader_settings.voxel_scale.y / 2.0f) : 0.0f,
+					model.size.z & 0b1 ? (reader_settings.voxel_scale.z / 2.0f) : 0.0f
+				};
+
+				// Make sure to flip the offset axes based on the coordinate system.
+				offset.x *= reader_settings.flipped_handedness ? -1.0f : 1.0f;
+				offset.z *= reader_settings.flipped_up_axis ? -1.0f : 1.0f;
+
+				// Multiply by the offset by the transform's matrix to correctly rotate the offset.
+				if (reader_settings.flipped_handedness || reader_settings.flipped_up_axis)
+				{
+					offset *= transform.matrix;
+				}
+
+				Vector& position = transform.GetPosition();
+				position.x += offset.x;
+				position.y += offset.y;
+				position.z += offset.z;
+
+				transform.local_position.x += offset.x;
+				transform.local_position.y += offset.y;
+				transform.local_position.z += offset.z;
+			}
 		}
 	}
 

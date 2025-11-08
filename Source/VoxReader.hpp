@@ -49,12 +49,15 @@ namespace VoxReader
 			Z_UP = 1
 		};
 
+		// Set the coordinate system to transform the transforms and voxel data to, this will automatically flip the voxel data and the transform data.
 		void SetCoordinateSystem(CoordSystem handedness = RH, CoordSystem up_axis = Z_UP);
 
-		// Custom scale for transform positions.
-		Vector custom_scale{ 1.0f, 1.0f, 1.0f };
-		// Calculate the local Euler rotation angles from the rotation matrix.
+		// Custom voxel scale for adjusting the positions.
+		Vector voxel_scale{ 1.0f, 1.0f, 1.0f };
+		// Calculate the local quaternion rotation from the rotation matrix (can be expensive and unnecessary).
 		bool calculate_local_rotation{ true };
+		// Add half voxel offsets to instance transforms, this fixes alignment issues with odd numbered voxel object scales.
+		bool add_voxel_offsets{ true };
 
 		// Internal use for converting coordinate systems. Use ReadSettings::SetCoordinateSystem() to generate them.
 		Matrix coord_system_matrix{};
