@@ -51,6 +51,7 @@ int main(int, char*)
 		const VoxReader::Vector& position = transform.GetPosition();
 		std::cout << "    World position: " << position.x << ", " << position.y << ", " << position.z << '\n';
 		std::cout << "    Local position: " << transform.local_position.x << ", " << transform.local_position.y << ", " << transform.local_position.z << '\n';
+		std::cout << "    Local rotation: " << transform.local_rotation.w << ", " << transform.local_rotation.x << ", " << transform.local_rotation.y << ", " << transform.local_rotation.z << '\n';
 		std::cout << '\n';
 	}
 

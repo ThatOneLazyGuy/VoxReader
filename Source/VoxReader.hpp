@@ -13,8 +13,14 @@ namespace VoxReader
 
 	union Matrix
 	{
-		float data[16]{};
-		float cells[4][4];
+		float data[16];
+		float cells[4][4]
+		{
+			{ 1.0f, 0.0f, 0.0f, 0.0f },
+			{ 0.0f, 1.0f, 0.0f, 0.0f },
+			{ 0.0f, 0.0f, 1.0f, 0.0f },
+			{ 0.0f, 0.0f, 0.0f, 1.0f }
+		};
 	};
 
 	struct Vector
@@ -24,20 +30,53 @@ namespace VoxReader
 		float z{ 0.0f };
 	};
 
+	struct Quaternion
+	{
+		float x{ 0.0f };
+		float y{ 0.0f };
+		float z{ 0.0f };
+		float w{ 1.0f }; 
+	};
+
+	struct ReaderSettings
+	{
+		enum CoordSystem : sint32
+		{
+			LH = -1,
+			RH = 1,
+
+			Y_UP = 0,
+			Z_UP = 1
+		};
+
+		void SetCoordinateSystem(CoordSystem handedness = RH, CoordSystem up_axis = Z_UP);
+
+		// Custom scale for transform positions.
+		Vector custom_scale{ 1.0f, 1.0f, 1.0f };
+		// Calculate the local Euler rotation angles from the rotation matrix.
+		bool calculate_local_rotation{ true };
+
+		// Internal use for converting coordinate systems. Use ReadSettings::SetCoordinateSystem() to generate them.
+		Matrix coord_system_matrix{};
+		Matrix inverse_coord_system_matrix{};
+		bool flipped_handedness{ false };
+		bool flipped_up_axis{ false };
+	};
+
 	class Transform
 	{
 	public:
-		Transform(const Vector& position, uint8 rotation);
+		Transform(const Vector& position, uint8 rotation, const ReaderSettings& reader_settings);
 
 		[[nodiscard]] Vector& GetPosition() { return reinterpret_cast<Vector&>(matrix.cells[3][0]); }
 		[[nodiscard]] const Vector& GetPosition() const { return reinterpret_cast<const Vector&>(matrix.cells[3][0]); }
-		void MakeRelativeTo(const Matrix& parent_matrix);
 
 		std::string name;
-		Matrix matrix;
+		Matrix matrix{};
 		bool hidden{ false };
 
-		Vector local_position;
+		Vector local_position{};
+		Quaternion local_rotation{};
 	};
 
 	struct Model
@@ -121,7 +160,7 @@ namespace VoxReader
 	{
 	public:
 		Scene() = default;
-		Scene(const void* data, usize data_size);
+		Scene(const void* data, usize data_size, const ReaderSettings& reader_settings = {});
 
 		// Converts a palette color (uint32) into its rgba components (1 byte per component).
 		[[nodiscard]] Color PaletteToColor(const usize i) const
@@ -148,8 +187,6 @@ namespace VoxReader
 		Material materials[256]{};
 
 	private:
-		uint32 ParseSceneGraph(const void*& data, const uint32 parent_transform_index = UINT32_MAX);
+		uint32 ParseSceneGraph(const void*& data, const ReaderSettings& reader_settings, uint32 parent_transform_index = UINT32_MAX);
 	};
-
-
 }

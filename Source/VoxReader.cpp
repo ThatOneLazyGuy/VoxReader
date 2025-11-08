@@ -8,6 +8,7 @@
 
 #include <map>
 #include <array>
+#include <cmath>
 #include <cassert>
 #include <charconv>
 #include <string_view>
@@ -178,17 +179,151 @@ namespace VoxReader
 			return { first, second, third };
 		}
 
+		Matrix operator*(const Matrix& first, const Matrix& second)
+		{
+			Matrix matrix{};
+			for (usize row = 0; row < 4; row++)
+			{
+				for (usize column = 0; column < 4; column++)
+				{
+					matrix.cells[row][column] = 0.0f;
+					matrix.cells[row][column] += first.cells[row][0] * second.cells[0][column];
+					matrix.cells[row][column] += first.cells[row][1] * second.cells[1][column];
+					matrix.cells[row][column] += first.cells[row][2] * second.cells[2][column];
+					matrix.cells[row][column] += first.cells[row][3] * second.cells[3][column];
+				}
+			}
+
+			return matrix;
+		}
+
+		void operator*=(Matrix& first, const Matrix& second)
+		{
+			Matrix old_matrix = first;
+			for (usize row = 0; row < 4; row++)
+			{
+				for (usize column = 0; column < 4; column++)
+				{
+					first.cells[row][column] = 0.0f;
+					first.cells[row][column] += old_matrix.cells[row][0] * second.cells[0][column];
+					first.cells[row][column] += old_matrix.cells[row][1] * second.cells[1][column];
+					first.cells[row][column] += old_matrix.cells[row][2] * second.cells[2][column];
+					first.cells[row][column] += old_matrix.cells[row][3] * second.cells[3][column];
+				}
+			}
+		}
+
+		// Function based on glm::quat_cast(): https://github.com/g-truc/glm/blob/master/glm/gtc/quaternion.inl
+		Quaternion MatrixToQuaternion(const Matrix& matrix)
+		{
+			const float four_x_squared_minus1 = matrix.cells[0][0] - matrix.cells[1][1] - matrix.cells[2][2];
+			const float four_y_squared_minus1 = matrix.cells[1][1] - matrix.cells[0][0] - matrix.cells[2][2];
+			const float four_z_squared_minus1 = matrix.cells[2][2] - matrix.cells[0][0] - matrix.cells[1][1];
+			const float four_w_squared_minus1 = matrix.cells[0][0] + matrix.cells[1][1] + matrix.cells[2][2];
+
+			int largest_index = 0;
+			float four_biggest_squared_minus1 = four_w_squared_minus1;
+			if(four_x_squared_minus1 > four_biggest_squared_minus1)
+			{
+				four_biggest_squared_minus1 = four_x_squared_minus1;
+				largest_index = 1;
+			}
+			if(four_y_squared_minus1 > four_biggest_squared_minus1)
+			{
+				four_biggest_squared_minus1 = four_y_squared_minus1;
+				largest_index = 2;
+			}
+			if(four_z_squared_minus1 > four_biggest_squared_minus1)
+			{
+				four_biggest_squared_minus1 = four_z_squared_minus1;
+				largest_index = 3;
+			}
+
+			const float largest_value = std::sqrtf(four_biggest_squared_minus1 + 1.0f) * 0.5f;
+			const float multiplier = 0.25f / largest_value;
+
+			switch (largest_index)
+			{
+			case 0:
+				return Quaternion
+				{
+					(matrix.cells[1][2] - matrix.cells[2][1]) * multiplier,
+					(matrix.cells[2][0] - matrix.cells[0][2]) * multiplier,
+					(matrix.cells[0][1] - matrix.cells[1][0]) * multiplier,
+					largest_value
+				};
+
+			case 1:
+				return Quaternion
+				{
+					largest_value,
+					(matrix.cells[0][1] + matrix.cells[1][0]) * multiplier,
+					(matrix.cells[2][0] + matrix.cells[0][2]) * multiplier,
+					(matrix.cells[1][2] - matrix.cells[2][1]) * multiplier
+				};
+
+			case 2:
+				return Quaternion
+				{
+					(matrix.cells[0][1] + matrix.cells[1][0]) * multiplier,
+					largest_value,
+					(matrix.cells[1][2] + matrix.cells[2][1]) * multiplier,
+					(matrix.cells[2][0] - matrix.cells[0][2]) * multiplier
+				};
+
+			case 3:
+				return Quaternion
+				{
+					(matrix.cells[2][0] + matrix.cells[0][2]) * multiplier,
+					(matrix.cells[1][2] + matrix.cells[2][1]) * multiplier,
+					largest_value,
+					(matrix.cells[0][1] - matrix.cells[1][0]) * multiplier
+				};
+
+			default:
+				assert(false && "Failed to calculate quaternion from matrix!");
+				return Quaternion{};
+			}
+		}
 	}
 
-	Transform::Transform(const Vector& position, const uint8 rotation)
+    void ReaderSettings::SetCoordinateSystem(const CoordSystem handedness, const CoordSystem up_axis) 
 	{
-		matrix.cells[3][0] = position.x;
-		matrix.cells[3][1] = position.y;
-		matrix.cells[3][2] = position.z;
-		matrix.cells[3][3] = 1.0f;
+		flipped_handedness = (handedness == LH);
+		flipped_up_axis = (up_axis == Y_UP);
+
+		coord_system_matrix.cells[0][0] = static_cast<float>(handedness);
+		inverse_coord_system_matrix.cells[0][0] = static_cast<float>(handedness);
+
+		if (flipped_up_axis) 
+		{
+			coord_system_matrix.cells[1][1] = 0.0f;
+			coord_system_matrix.cells[2][2] = 0.0f;
+
+			coord_system_matrix.cells[1][2] = 1.0f;
+			coord_system_matrix.cells[2][1] = -1.0f;
+
+			inverse_coord_system_matrix.cells[1][1] = 0.0f;
+			inverse_coord_system_matrix.cells[2][2] = 0.0f;
+
+			inverse_coord_system_matrix.cells[1][2] = -1.0f;
+			inverse_coord_system_matrix.cells[2][1] = 1.0f;
+		} 
+    }
+
+	Transform::Transform(const Vector& position, const uint8 rotation, const ReaderSettings& reader_settings)
+	{
+		matrix.cells[3][0] = position.x * reader_settings.custom_scale.x;
+		matrix.cells[3][1] = position.y * reader_settings.custom_scale.y;
+		matrix.cells[3][2] = position.z * reader_settings.custom_scale.z;
 
 		if (rotation != 0)
 		{
+			matrix.cells[0][0] = 0.0f;
+			matrix.cells[1][1] = 0.0f;
+			matrix.cells[2][2] = 0.0f;
+
+			// Set the rotation part of the matrix, MagicaVoxel stores a rotation matrix using only a uint8, see "(c) ROTATION type" in: https://github.com/ephtracy/voxel-model/blob/master/MagicaVoxel-file-format-vox-extension.txt
 			const uint32 index_x = rotation & 0b11;
 			matrix.cells[index_x][0] = rotation & (1 << 4) ? -1.0f : 1.0f;
 
@@ -198,34 +333,25 @@ namespace VoxReader
 			const uint32 index_z = 3 - (index_x + index_y);
 			matrix.cells[index_z][2] = rotation & (1 << 6) ? -1.0f : 1.0f;
 		}
-		else
+
+		// No need to do matrix multiplications if the coordinate system wasn't changed.
+		if (reader_settings.flipped_handedness || reader_settings.flipped_up_axis)
 		{
-			matrix.cells[0][0] = 1.0f;
-			matrix.cells[1][1] = 1.0f;
-			matrix.cells[2][2] = 1.0f;
+			matrix = reader_settings.coord_system_matrix * matrix * reader_settings.inverse_coord_system_matrix;
 		}
 
-		local_position = position;
-	}
+		local_position.x = matrix.cells[3][0];
+		local_position.y = matrix.cells[3][1];
+		local_position.z = matrix.cells[3][2];
 
-	void Transform::MakeRelativeTo(const Matrix& parent_matrix)
-	{
-		const Matrix old_matrix = matrix;
-		for (usize row = 0; row < 4; row++)
+		// Only calculate the local rotation when necessary, unnecessary in a lot of cases (has to happen after coordinate system transformation).
+		if (rotation != 0 && reader_settings.calculate_local_rotation)
 		{
-			for (usize column = 0; column < 4; column++)
-			{
-				matrix.cells[row][column] = 0;
-
-				matrix.cells[row][column] += old_matrix.cells[row][0] * parent_matrix.cells[0][column];
-				matrix.cells[row][column] += old_matrix.cells[row][1] * parent_matrix.cells[1][column];
-				matrix.cells[row][column] += old_matrix.cells[row][2] * parent_matrix.cells[2][column];
-				matrix.cells[row][column] += old_matrix.cells[row][3] * parent_matrix.cells[3][column];
-			}
+			local_rotation = MatrixToQuaternion(matrix);
 		}
 	}
 
-	Scene::Scene(const void* data, const usize data_size)
+	Scene::Scene(const void* data, const usize data_size, const ReaderSettings& reader_settings)
 	{
 		const void* const data_end = static_cast<const uint8*>(data) + data_size;
 
@@ -246,20 +372,42 @@ namespace VoxReader
 				Model& model = models.emplace_back();
 
 				model.size = ReadData<Model::Size>(data);
+				if (reader_settings.flipped_up_axis)
+				{
+					const uint32 old_y = model.size.y;
+					model.size.y = model.size.z;
+					model.size.z = old_y;
+				}
 
 				const uint32 voxel_count = model.size.x * model.size.y * model.size.z;
 				model.voxel_data.resize(voxel_count, 0);
 
 				SkipData(data, sizeof(ChunkHeader)); // Skip the header for the XYZI chunk since it's guaranteed to be after the SIZE chunk.
 
+				const uint32 stride_z = model.size.x * model.size.y;
+
 				const ArrayView<uint32> packed_voxel_data = ReadArray<uint32>(data);
 				for (const uint32 voxel : packed_voxel_data)
 				{
-					const uint8 x = voxel & 0xFF;
-					const uint8 y = (voxel >> 8) & 0xFF;
-					const uint8 z = (voxel >> 16) & 0xFF;
-					const uint32 index = x + (y * model.size.x) + (z * model.size.x * model.size.y);
+					uint32 x = voxel & 0xFF;
 
+					uint32 y;
+					uint32 z;
+					if (reader_settings.flipped_up_axis)
+					{
+						y = (voxel >> 16) & 0xFF;
+						z = (voxel >> 8) & 0xFF;
+					} 
+					else
+					{
+						y = (voxel >> 8) & 0xFF;
+						z = (voxel >> 16) & 0xFF;
+					}
+
+					x = (reader_settings.flipped_handedness ? model.size.x - 1 - x : x);
+					z = (reader_settings.flipped_up_axis ? model.size.z - 1 - z : z);
+
+					const uint32 index = x + (y * model.size.x) + (z * stride_z);
 					model.voxel_data[index] = voxel >> 24;
 				}
 			}
@@ -289,7 +437,7 @@ namespace VoxReader
 				for (uint32 i = 0; i < root_children.size; i++)
 				{
 					SkipData(data, sizeof(ChunkHeader)); // Skip the child nTRN node's header.
-					ParseSceneGraph(data);
+					ParseSceneGraph(data, reader_settings);
 				}
 
 			}
@@ -411,7 +559,7 @@ namespace VoxReader
 		}
 	}
 
-	uint32 Scene::ParseSceneGraph(const void*& data, const uint32 parent_transform_index)
+	uint32 Scene::ParseSceneGraph(const void*& data, const ReaderSettings& reader_settings, const uint32 parent_transform_index)
 	{
 		SkipData(data, sizeof(uint32)); // Skip transform id.
 		const StringMap node_attributes = ReadDict(data); // Transform node's attributes (name, hidden).
@@ -454,10 +602,10 @@ namespace VoxReader
 		}
 
 		const uint32 transform_index = static_cast<uint32>(transforms.size());
-		Transform& transform = transforms.emplace_back(position, rotation);
+		Transform& transform = transforms.emplace_back(position, rotation, reader_settings);
 		if (parent_transform_index != UINT32_MAX)
 		{
-			transform.MakeRelativeTo(transforms[parent_transform_index].matrix);
+			transform.matrix *= transforms[parent_transform_index].matrix;
 		}
 
 		const std::string_view* name = MapFind(node_attributes, "_name");
@@ -481,7 +629,7 @@ namespace VoxReader
 			for (usize i = 0; i < children_count; i++)
 			{
 				SkipData(data, sizeof(ChunkHeader)); // Skip the next nTRN chunk header, since we know it'll be next.
-				groups[group_index].child_transform_indices[i] = ParseSceneGraph(data, transform_index);
+				groups[group_index].child_transform_indices[i] = ParseSceneGraph(data, reader_settings, transform_index);
 			}
 		}
 		else
