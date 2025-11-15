@@ -243,17 +243,17 @@ namespace VoxReader
 
 			int largest_index = 0;
 			float four_biggest_squared_minus1 = four_w_squared_minus1;
-			if(four_x_squared_minus1 > four_biggest_squared_minus1)
+			if (four_x_squared_minus1 > four_biggest_squared_minus1)
 			{
 				four_biggest_squared_minus1 = four_x_squared_minus1;
 				largest_index = 1;
 			}
-			if(four_y_squared_minus1 > four_biggest_squared_minus1)
+			if (four_y_squared_minus1 > four_biggest_squared_minus1)
 			{
 				four_biggest_squared_minus1 = four_y_squared_minus1;
 				largest_index = 2;
 			}
-			if(four_z_squared_minus1 > four_biggest_squared_minus1)
+			if (four_z_squared_minus1 > four_biggest_squared_minus1)
 			{
 				four_biggest_squared_minus1 = four_z_squared_minus1;
 				largest_index = 3;
@@ -307,7 +307,7 @@ namespace VoxReader
 		}
 	}
 
-    void ReaderSettings::SetCoordinateSystem(const CoordSystem handedness, const CoordSystem up_axis) 
+	void ReaderSettings::SetCoordinateSystem(const CoordSystem handedness, const CoordSystem up_axis)
 	{
 		flipped_handedness = (handedness == LH);
 		flipped_up_axis = (up_axis == Y_UP);
@@ -315,7 +315,7 @@ namespace VoxReader
 		coord_system_matrix.cells[0][0] = static_cast<float>(handedness);
 		inverse_coord_system_matrix.cells[0][0] = static_cast<float>(handedness);
 
-		if (flipped_up_axis) 
+		if (flipped_up_axis)
 		{
 			coord_system_matrix.cells[1][1] = 0.0f;
 			coord_system_matrix.cells[2][2] = 0.0f;
@@ -328,8 +328,8 @@ namespace VoxReader
 
 			inverse_coord_system_matrix.cells[1][2] = -1.0f;
 			inverse_coord_system_matrix.cells[2][1] = 1.0f;
-		} 
-    }
+		}
+	}
 
 	Transform::Transform(const Vector& position, const uint8 rotation, const ReaderSettings& reader_settings)
 	{
@@ -417,7 +417,7 @@ namespace VoxReader
 					{
 						y = (voxel >> 16) & 0xFF;
 						z = (voxel >> 8) & 0xFF;
-					} 
+					}
 					else
 					{
 						y = (voxel >> 8) & 0xFF;
@@ -578,39 +578,90 @@ namespace VoxReader
 			std::memcpy(palette, default_palette, sizeof(default_palette));
 		}
 
-		if (reader_settings.add_voxel_offsets)
+		// Both of these settings require us to loop over each instance.
+		if (reader_settings.add_voxel_offsets || reader_settings.avoid_negative_scale)
 		{
-			for (const Instance& instance : instances)
+			// Mapping between old model indices and new inverse model indices (if a model index is not contained in the map, no instances that uses it has negative scaling).
+			std::map<uint32, uint32> inverse_model_map; // Unused if reader_settings.avoid_negative_scale == false.
+
+			for (Instance& instance : instances)
 			{
-				const Model& model = models[instance.model_index];
-				Transform& transform = transforms[instance.transform_index];
-
-				// If the scale of the model is an odd number on any axis, add half a voxel as an offset to align the instances correctly.
-				Vector offset
+				if (reader_settings.add_voxel_offsets)
 				{
-					model.size.x & 0b1 ? (reader_settings.voxel_scale.x / 2.0f) : 0.0f,
-					model.size.y & 0b1 ? (reader_settings.voxel_scale.y / 2.0f) : 0.0f,
-					model.size.z & 0b1 ? (reader_settings.voxel_scale.z / 2.0f) : 0.0f
-				};
+					const Model& model = models[instance.model_index];
+					Transform& transform = transforms[instance.transform_index];
 
-				// Make sure to flip the offset axes based on the coordinate system.
-				offset.x *= reader_settings.flipped_handedness ? -1.0f : 1.0f;
-				offset.z *= reader_settings.flipped_up_axis ? -1.0f : 1.0f;
+					// If the scale of the model is an odd number on any axis, add half a voxel as an offset to align the instances correctly.
+					Vector offset
+					{
+						model.size.x & 0b1 ? (reader_settings.voxel_scale.x / 2.0f) : 0.0f,
+						model.size.y & 0b1 ? (reader_settings.voxel_scale.y / 2.0f) : 0.0f,
+						model.size.z & 0b1 ? (reader_settings.voxel_scale.z / 2.0f) : 0.0f
+					};
 
-				// Multiply by the offset by the transform's matrix to correctly rotate the offset.
-				if (reader_settings.flipped_handedness || reader_settings.flipped_up_axis)
-				{
-					offset *= transform.matrix;
+					// Make sure to flip the offset axes based on the coordinate system.
+					offset.x *= reader_settings.flipped_handedness ? -1.0f : 1.0f;
+					offset.z *= reader_settings.flipped_up_axis ? -1.0f : 1.0f;
+
+					// Multiply by the offset by the transform's matrix to correctly rotate the offset.
+					if (reader_settings.flipped_handedness || reader_settings.flipped_up_axis)
+					{
+						offset *= transform.matrix;
+					}
+
+					Vector& position = transform.GetPosition();
+					position.x += offset.x;
+					position.y += offset.y;
+					position.z += offset.z;
+
+					transform.local_position.x += offset.x;
+					transform.local_position.y += offset.y;
+					transform.local_position.z += offset.z;
 				}
 
-				Vector& position = transform.GetPosition();
-				position.x += offset.x;
-				position.y += offset.y;
-				position.z += offset.z;
+				// We check both settings again, otherwise if both of them are true we'd have to loop over all elements twice.
+				if (!reader_settings.avoid_negative_scale) continue;
 
-				transform.local_position.x += offset.x;
-				transform.local_position.y += offset.y;
-				transform.local_position.z += offset.z;
+				Matrix& matrix = transforms[instance.transform_index].matrix;
+				const float determinant = matrix.cells[0][0] * matrix.cells[1][1] * matrix.cells[2][2] +
+					matrix.cells[0][1] * matrix.cells[1][2] * matrix.cells[2][0] +
+					matrix.cells[0][2] * matrix.cells[1][0] * matrix.cells[2][1] -
+					matrix.cells[0][2] * matrix.cells[1][1] * matrix.cells[2][0] -
+					matrix.cells[0][1] * matrix.cells[1][0] * matrix.cells[2][2] -
+					matrix.cells[0][0] * matrix.cells[1][2] * matrix.cells[2][1];
+
+				// If the determinant is negative, the matrix has negative scaling.
+				if (determinant < 0.0f)
+				{
+					const uint32 old_model_index = instance.model_index;
+					const auto& model_map_iterator = inverse_model_map.find(old_model_index);
+					if (model_map_iterator == inverse_model_map.end())
+					{
+						const Model& old_model = models[old_model_index];
+						inverse_model_map[old_model_index] = instance.model_index = static_cast<uint32>(models.size());
+
+						// When a transform has inverse scale it always has inverse scale on all 3 axes, so we can get away with reversing the ENTIRE new voxel data array.
+						std::vector<uint8> new_voxel_data{ old_model.voxel_data.rbegin(), old_model.voxel_data.rend() };
+						models.emplace_back(old_model.size, std::move(new_voxel_data));
+					}
+					else
+					{
+						instance.model_index = model_map_iterator->second;
+					}
+
+					// Invert all rotation axes to avoid the negative scaling.
+					matrix.cells[0][0] = -matrix.cells[0][0];
+					matrix.cells[0][1] = -matrix.cells[0][1];
+					matrix.cells[0][2] = -matrix.cells[0][2];
+
+					matrix.cells[1][0] = -matrix.cells[1][0];
+					matrix.cells[1][1] = -matrix.cells[1][1];
+					matrix.cells[1][2] = -matrix.cells[1][2];
+
+					matrix.cells[2][0] = -matrix.cells[2][0];
+					matrix.cells[2][1] = -matrix.cells[2][1];
+					matrix.cells[2][2] = -matrix.cells[2][2];
+				}
 			}
 		}
 	}

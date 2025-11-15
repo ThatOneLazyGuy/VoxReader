@@ -58,6 +58,8 @@ namespace VoxReader
 		bool calculate_local_rotation{ true };
 		// Add half voxel offsets to instance transforms, this fixes alignment issues with odd numbered voxel object scales.
 		bool add_voxel_offsets{ true };
+		// Avoid instance transforms with negative scale by creating an inverted duplicate of the voxel model it uses.
+		bool avoid_negative_scale{ true };
 
 		// Internal use for converting coordinate systems. Use ReadSettings::SetCoordinateSystem() to generate them.
 		Matrix coord_system_matrix{};
@@ -89,21 +91,29 @@ namespace VoxReader
 			uint32 x;
 			uint32 y;
 			uint32 z;
-		} size;
+		};
 
+		Model() = default;
+		Model(const Size& size, std::vector<uint8>&& voxel_data) : size{size}, voxel_data{std::move(voxel_data)} {}
+
+		Size size;
 		std::vector<uint8> voxel_data;
 	};
 
 	struct Instance
 	{
+		Instance() = default;
 		Instance(const uint32 transform_index, const uint32 model_index) : transform_index{ transform_index }, model_index{ model_index } {}
+
 		uint32 transform_index;
 		uint32 model_index;
 	};
 
 	struct Group
 	{
+		Group() = default;
 		Group(const uint32 transform_index, std::vector<uint32>&& child_transform_indices) : transform_index{ transform_index }, child_transform_indices{ std::move(child_transform_indices) } {}
+
 		uint32 transform_index;
 		std::vector<uint32> child_transform_indices;
 	};
